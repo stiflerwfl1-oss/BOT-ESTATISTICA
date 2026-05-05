@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discord Tracker Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root,[data-theme="light"]{
+  --bg:#f7f6f2;--surface:#f9f8f5;--surface-2:#fbfbf9;--surface-off:#f0ede8;
+  --border:#d4d1ca;--divider:#dcd9d5;
+  --text:#28251d;--muted:#7a7974;--faint:#bab9b4;--inv:#f9f8f4;
+  --primary:#01696f;--primary-h:#0c4e54;--primary-hi:#cedcd8;
+  --success:#437a22;--error:#a13544;--warn:#da7101;
+  --r-sm:.375rem;--r-md:.5rem;--r-lg:.75rem;--r-xl:1rem;--r-full:9999px;
+  --sh-sm:0 1px 2px rgba(40,37,29,.06);
+  --sh-md:0 4px 12px rgba(40,37,29,.08);
+  --sh-lg:0 12px 32px rgba(40,37,29,.13);
+}
+[data-theme="dark"]{
+  --bg:#171614;--surface:#1c1b19;--surface-2:#201f1d;--surface-off:#232220;
+  --border:#393836;--divider:#262523;
+  --text:#cdccca;--muted:#797876;--faint:#5a5957;--inv:#2b2a28;
+  --primary:#4f98a3;--primary-h:#227f8b;--primary-hi:#313b3b;
+  --success:#6daa45;--error:#dd6974;--warn:#fdab43;
+  --sh-sm:0 1px 3px rgba(0,0,0,.25);
+  --sh-md:0 4px 14px rgba(0,0,0,.35);
+  --sh-lg:0 12px 36px rgba(0,0,0,.45);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-family:'Inter',sans-serif;font-size:16px;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+body{min-height:100dvh}
+img{display:block;max-width:100%}
+button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
+
+/* HEADER */
+.header{position:sticky;top:0;z-index:100;height:60px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 1.5rem;
+  background:var(--surface);border-bottom:1px solid var(--border);backdrop-filter:blur(12px)}
+.logo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1.125rem;
+  letter-spacing:-.02em;display:flex;align-items:center;gap:.625rem}
+.logo-mark{width:30px;height:30px;background:var(--primary);border-radius:var(--r-md);
+  display:flex;align-items:center;justify-content:center}
+.logo-mark svg{color:var(--inv)}
+.header-right{display:flex;align-items:center;gap:.75rem}
+.period-tabs{display:flex;background:var(--surface-off);border-radius:var(--r-lg);
+  padding:3px;border:1px solid var(--border)}
+.p-tab{padding:.35rem .875rem;border-radius:var(--r-md);font-size:.8125rem;font-weight:500;
+  color:var(--muted);transition:all .18s ease}
+.p-tab:hover{color:var(--text)}
+.p-tab.active{background:var(--primary);color:var(--inv)}
+.icon-btn{width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+  border-radius:var(--r-md);border:1px solid var(--border);color:var(--muted);
+  background:var(--surface-2);transition:all .18s}
+.icon-btn:hover{color:var(--text);background:var(--surface-off)}
+
+/* MAIN */
+.main{max-width:1200px;margin:0 auto;padding:1.5rem}
+
+/* KPIS */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-bottom:1.5rem}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);
+  padding:1.25rem 1.5rem;transition:box-shadow .2s}
+.kpi:hover{box-shadow:var(--sh-md)}
+.kpi-label{font-size:.6875rem;text-transform:uppercase;letter-spacing:.055em;font-weight:600;
+  color:var(--muted);margin-bottom:.5rem;display:flex;align-items:center;gap:.375rem}
+.kpi-icon{width:16px;height:16px;opacity:.7}
+.kpi-value{font-family:'Space Grotesk',sans-serif;font-size:1.875rem;font-weight:700;
+  color:var(--text);line-height:1.1;font-variant-numeric:tabular-nums}
+.kpi-sub{font-size:.75rem;color:var(--muted);margin-top:.375rem}
+
+/* CARDS */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);
+  padding:1.5rem;margin-bottom:1.25rem}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
+.card-title{font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:600}
+.card-actions{display:flex;gap:.5rem}
+.btn{padding:.45rem .875rem;border-radius:var(--r-md);font-size:.8125rem;font-weight:500;
+  display:inline-flex;align-items:center;gap:.375rem;transition:all .18s;border:1px solid transparent}
+.btn-ghost{border-color:var(--border);color:var(--muted);background:var(--surface-2)}
+.btn-ghost:hover{color:var(--text);background:var(--surface-off)}
+.btn-primary{background:var(--primary);color:var(--inv);border-color:transparent}
+.btn-primary:hover{background:var(--primary-h)}
+
+/* CHART */
+.chart-wrap{position:relative;height:220px}
+
+/* TABLE */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.8125rem}
+thead{border-bottom:1px solid var(--border)}
+th{padding:.625rem 1rem;text-align:left;font-size:.6875rem;text-transform:uppercase;
+  letter-spacing:.05em;font-weight:600;color:var(--muted);white-space:nowrap}
+td{padding:.875rem 1rem;border-bottom:1px solid var(--divider);vertical-align:middle}
+tbody tr:hover td{background:var(--surface-off)}
+tbody tr:last-child td{border-bottom:none}
+
+.member-cell{display:flex;align-items:center;gap:.75rem}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--primary-hi);
+  display:flex;align-items:center;justify-content:center;font-weight:600;font-size:.8125rem;
+  color:var(--primary);flex-shrink:0;overflow:hidden}
+.avatar img{width:34px;height:34px;border-radius:50%}
+.m-name{font-weight:600;color:var(--text)}
+.m-tag{font-size:.6875rem;color:var(--faint);font-family:monospace}
+
+.time-cell{font-family:'Space Grotesk',sans-serif;font-weight:600;font-variant-numeric:tabular-nums}
+.time-online{color:var(--success)}
+.bar-wrap{display:flex;align-items:center;gap:.625rem}
+.bar-bg{flex:1;height:5px;border-radius:var(--r-full);background:var(--surface-off)}
+.bar-fill{height:5px;border-radius:var(--r-full);background:var(--primary);transition:width .4s ease}
+
+/* STATUS badge */
+.badge{display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .6rem;
+  border-radius:var(--r-full);font-size:.6875rem;font-weight:600}
+.badge-online{background:rgba(67,122,34,.13);color:var(--success)}
+.badge-idle{background:rgba(218,113,1,.13);color:var(--warn)}
+.badge-dnd{background:rgba(161,53,68,.13);color:var(--error)}
+.badge-offline{background:var(--surface-off);color:var(--faint)}
+.dot{width:6px;height:6px;border-radius:50%}
+.dot-online{background:var(--success)}
+.dot-idle{background:var(--warn)}
+.dot-dnd{background:var(--error)}
+.dot-offline{background:var(--faint)}
+
+/* RANK */
+.rank{width:22px;text-align:center;font-weight:700;color:var(--muted);font-size:.875rem}
+
+/* EMPTY / LOAD */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:.75rem;padding:3rem 1rem;color:var(--muted);font-size:.875rem}
+.empty svg{color:var(--faint)}
+
+/* GUILD input */
+.guild-bar{display:flex;align-items:center;gap:.5rem;margin-bottom:1.25rem;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:.5rem 1rem}
+.guild-bar label{font-size:.75rem;color:var(--muted);white-space:nowrap;font-weight:500}
+.guild-input{flex:1;background:transparent;border:none;outline:none;font-family:'Inter',sans-serif;
+  font-size:.875rem;color:var(--text)}
+.guild-input::placeholder{color:var(--faint)}
+
+@media(max-width:768px){
+  .main{padding:1rem}
+  .kpis{grid-template-columns:1fr 1fr}
+  .card-header{flex-direction:column;align-items:flex-start;gap:.75rem}
+  td,th{padding:.625rem .5rem}
+}
+@media(max-width:480px){
+  .kpis{grid-template-columns:1fr}
+  .period-tabs{display:none}
+  .period-select{display:block}
+}
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="logo">
+    <div class="logo-mark">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+      </svg>
+    </div>
+    Discord Tracker
+  </div>
+  <div class="header-right">
+    <div class="period-tabs">
+      <button class="p-tab" data-p="day">Dia</button>
+      <button class="p-tab" data-p="week">Semana</button>
+      <button class="p-tab active" data-p="month">Mês</button>
+    </div>
+    <button class="icon-btn" id="theme-btn" aria-label="Tema">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main class="main">
+  <!-- Guild Input -->
+  <div class="guild-bar">
+    <label for="guild-input">Guild ID</label>
+    <input id="guild-input" class="guild-input" placeholder="Cole aqui o ID do seu servidor..." type="text">
+    <button class="btn btn-primary" onclick="loadAll()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      Carregar
+    </button>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-label">
+        <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+        </svg>
+        Membros Ativos
+      </div>
+      <div class="kpi-value" id="k-members">—</div>
+      <div class="kpi-sub">no período selecionado</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">
+        <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        Total Online
+      </div>
+      <div class="kpi-value" id="k-online">—</div>
+      <div class="kpi-sub">horas combinadas</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">
+        <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+        </svg>
+        Tempo em Voz
+      </div>
+      <div class="kpi-value" id="k-voice">—</div>
+      <div class="kpi-sub">horas em call</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">
+        <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        Média por Membro
+      </div>
+      <div class="kpi-value" id="k-avg">—</div>
+      <div class="kpi-sub">horas de presença</div>
+    </div>
+  </div>
+
+  <!-- Timeline Chart -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Evolução diária</span>
+    </div>
+    <div class="chart-wrap"><canvas id="timeline-chart"></canvas></div>
+  </div>
+
+  <!-- Members Table -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Membros — Tempo Individual</span>
+      <div class="card-actions">
+        <button class="btn btn-ghost" onclick="exportCSV()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Exportar CSV
+        </button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Membro</th>
+            <th>Online</th>
+            <th>Voz</th>
+            <th>Progresso</th>
+            <th>Último acesso</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="6">
+            <div class="empty">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Insira o Guild ID e clique em Carregar
+            </div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+let period = 'month';
+let membersData = [];
+let chartInstance = null;
+
+// Theme
+let dark = true;
+document.getElementById('theme-btn').addEventListener('click', () => {
+  dark = !dark;
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  document.getElementById('theme-btn').innerHTML = dark
+    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+});
+
+// Period
+document.querySelectorAll('.p-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.p-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    period = btn.dataset.p;
+    loadAll();
+  });
+});
+
+function guildId() {
+  return document.getElementById('guild-input').value.trim();
+}
+
+function fmt(min) {
+  min = Math.round(min);
+  if (min <= 0) return '0m';
+  const h = Math.floor(min / 60), m = min % 60;
+  return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso + 'Z');
+  return d.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+
+function initials(name) {
+  return (name || 'U').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+}
+
+async function loadAll() {
+  const gid = guildId();
+  if (!gid) { alert('Insira o Guild ID do servidor.'); return; }
+  await Promise.all([loadOverview(gid), loadMembers(gid), loadTimeline(gid)]);
+}
+
+async function loadOverview(gid) {
+  try {
+    const r = await fetch(`/api/overview?period=${period}&guild_id=${gid}`);
+    const d = await r.json();
+    document.getElementById('k-members').textContent = d.active_members;
+    document.getElementById('k-online').textContent = fmt(d.total_online_minutes);
+    document.getElementById('k-voice').textContent = fmt(d.total_voice_minutes);
+    const avg = d.active_members > 0 ? d.total_online_minutes / d.active_members : 0;
+    document.getElementById('k-avg').textContent = fmt(avg);
+  } catch(e) { console.error(e); }
+}
+
+async function loadMembers(gid) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = `<tr><td colspan="6"><div class="empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Carregando...</div></td></tr>`;
+  try {
+    const r = await fetch(`/api/members?period=${period}&guild_id=${gid}`);
+    const d = await r.json();
+    membersData = d.data || [];
+    renderTable(membersData);
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Erro ao carregar dados. Verifique o servidor e o Guild ID.</div></td></tr>`;
+  }
+}
+
+async function loadTimeline(gid) {
+  try {
+    const r = await fetch(`/api/timeline?period=${period}&guild_id=${gid}`);
+    const d = await r.json();
+    renderChart(d.data || []);
+  } catch(e) { console.error(e); }
+}
+
+function renderTable(data) {
+  const tbody = document.getElementById('tbody');
+  if (!data.length) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Nenhum dado encontrado para este período.</div></td></tr>`;
+    return;
+  }
+  const maxOnline = Math.max(...data.map(m => m.online_minutes), 1);
+  tbody.innerHTML = data.map((m, i) => {
+    const pct = Math.min(100, (m.online_minutes / maxOnline) * 100).toFixed(1);
+    const av = m.avatar_url
+      ? `<img src="${m.avatar_url}" alt="" onerror="this.style.display='none'">`
+      : initials(m.display_name || m.username);
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
+    return `
+      <tr>
+        <td><span class="rank">${medal}</span></td>
+        <td>
+          <div class="member-cell">
+            <div class="avatar">${av}</div>
+            <div>
+              <div class="m-name">${m.display_name || m.username || 'Desconhecido'}</div>
+              <div class="m-tag">${m.user_id}</div>
+            </div>
+          </div>
+        </td>
+        <td><span class="time-cell time-online">${fmt(m.online_minutes)}</span></td>
+        <td><span class="time-cell">${fmt(m.voice_minutes)}</span></td>
+        <td>
+          <div class="bar-wrap">
+            <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+            <span style="font-size:.75rem;color:var(--muted);min-width:36px;text-align:right">${pct}%</span>
+          </div>
+        </td>
+        <td style="color:var(--muted);font-size:.75rem">${fmtDate(m.last_seen)}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderChart(data) {
+  const ctx = document.getElementById('timeline-chart').getContext('2d');
+  if (chartInstance) chartInstance.destroy();
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#797876' : '#7a7974';
+  const primary = isDark ? '#4f98a3' : '#01696f';
+
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => {
+        const dt = new Date(d.date);
+        return dt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit'});
+      }),
+      datasets: [
+        {
+          label: 'Total online (h)',
+          data: data.map(d => +(d.total_minutes / 60).toFixed(1)),
+          backgroundColor: primary + '55',
+          borderColor: primary,
+          borderWidth: 2,
+          borderRadius: 6,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Membros ativos',
+          data: data.map(d => d.members),
+          type: 'line',
+          borderColor: isDark ? '#6daa45' : '#437a22',
+          backgroundColor: 'transparent',
+          tension: 0.4,
+          pointRadius: 3,
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { labels: { color: textColor, boxWidth: 12, font: { size: 12 } } }
+      },
+      scales: {
+        x: { ticks: { color: textColor, font: { size: 11 } }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor, font: { size: 11 } }, grid: { color: gridColor },
+          title: { display: true, text: 'Horas', color: textColor, font: { size: 11 } } },
+        y1: { position: 'right', ticks: { color: textColor, font: { size: 11 } },
+          grid: { display: false },
+          title: { display: true, text: 'Membros', color: textColor, font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+function exportCSV() {
+  if (!membersData.length) { alert('Nenhum dado para exportar.'); return; }
+  const header = ['user_id','username','display_name','online_minutes','voice_minutes','last_seen'];
+  const rows = membersData.map(m => [
+    m.user_id, m.username, m.display_name, m.online_minutes, m.voice_minutes, m.last_seen || ''
+  ]);
+  const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `tracker-${period}-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+}
+</script>
+</body>
+</html>

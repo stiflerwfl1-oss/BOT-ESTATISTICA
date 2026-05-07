@@ -43,13 +43,31 @@ def check_secret(secret: str | None) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def resolve_guild_id(guild_id: str | None) -> str:
+    value = (guild_id or "").strip() or (os.getenv("GUILD_ID") or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="guild_id is required")
+    return value
+
+
+@app.get("/api/config")
+async def config():
+    default_guild_id = (os.getenv("GUILD_ID") or "").strip()
+    api_secret = (os.getenv("API_SECRET") or "").strip()
+    return {
+        "default_guild_id": default_guild_id,
+        "secret_required": bool(api_secret),
+    }
+
+
 @app.get("/api/overview")
 async def overview(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:
@@ -104,10 +122,11 @@ async def overview(
 @app.get("/api/top/online")
 async def top_online(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:
@@ -151,10 +170,11 @@ async def top_online(
 @app.get("/api/top/messages")
 async def top_messages(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:
@@ -194,10 +214,11 @@ async def top_messages(
 @app.get("/api/top/games")
 async def top_games(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:
@@ -255,10 +276,11 @@ async def top_games(
 @app.get("/api/top/voice")
 async def top_voice(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:
@@ -296,10 +318,11 @@ async def top_voice(
 @app.get("/api/games/ranking")
 async def games_ranking(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:
@@ -334,10 +357,11 @@ async def games_ranking(
 @app.get("/api/timeline")
 async def timeline(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:
@@ -398,10 +422,11 @@ async def timeline(
 @app.get("/api/members")
 async def members(
     period: Literal["day", "week", "month"] = Query("month"),
-    guild_id: str = Query(...),
+    guild_id: str | None = Query(None),
     secret: str | None = Query(None),
 ):
     check_secret(secret)
+    guild_id = resolve_guild_id(guild_id)
     since = period_since(period)
     pool = app.state.pool
     async with pool.acquire() as conn:

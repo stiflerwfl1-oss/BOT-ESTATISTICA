@@ -135,6 +135,11 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
   font-size:.92rem;color:var(--text)
 }
 .guild-input::placeholder{color:var(--faint)}
+.guild-secret{
+  width:180px;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;
+  outline:none;font-family:'Inter',sans-serif;font-size:.8rem;color:var(--text);padding:.5rem .6rem;
+}
+.guild-secret::placeholder{color:var(--faint)}
 
 .kpis{
   display:grid;
@@ -268,11 +273,14 @@ tbody tr:last-child td{border-bottom:none}
   .card-header{flex-direction:column;align-items:flex-start;gap:.7rem}
   td,th{padding:.62rem .5rem}
   .guild-bar{padding:.56rem .62rem .56rem .72rem}
+  .guild-secret{width:150px}
 }
 @media(max-width:520px){
   .kpis{grid-template-columns:1fr}
   .period-tabs{display:none}
   .card{padding:1rem}
+  .guild-bar{flex-wrap:wrap}
+  .guild-input,.guild-secret{width:100%}
 }
 </style>
 </head>
@@ -305,6 +313,7 @@ tbody tr:last-child td{border-bottom:none}
   <div class="guild-bar">
     <label for="guild-input">Guild ID</label>
     <input id="guild-input" class="guild-input" placeholder="Cole aqui o ID do seu servidor..." type="text">
+    <input id="secret-input" class="guild-secret" placeholder="API Secret (opcional)" type="password">
     <button class="btn btn-primary" onclick="loadAll()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -436,6 +445,34 @@ function guildId() {
   return document.getElementById('guild-input').value.trim();
 }
 
+function apiSecret() {
+  return document.getElementById('secret-input').value.trim();
+}
+
+function savePrefs() {
+  localStorage.setItem('tracker.guild_id', guildId());
+  localStorage.setItem('tracker.api_secret', apiSecret());
+}
+
+async function apiGet(path, params = {}) {
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') q.set(k, String(v));
+  });
+
+  const secret = apiSecret();
+  if (secret) q.set('secret', secret);
+
+  const r = await fetch(`${path}?${q.toString()}`);
+  let payload = {};
+  try { payload = await r.json(); } catch (_) {}
+  if (!r.ok) {
+    const detail = payload?.detail || `HTTP ${r.status}`;
+    throw new Error(detail);
+  }
+  return payload;
+}
+
 function fmt(min) {
   min = Math.round(min);
   if (min <= 0) return '0m';
@@ -456,38 +493,42 @@ function initials(name) {
 async function loadAll() {
   const gid = guildId();
   if (!gid) { alert('Insira o Guild ID do servidor.'); return; }
+  savePrefs();
   await Promise.all([loadOverview(gid), loadMembers(gid), loadTimeline(gid)]);
 }
 
 async function loadOverview(gid) {
   try {
-    const r = await fetch(`/api/overview?period=${period}&guild_id=${gid}`);
-    const d = await r.json();
+    const d = await apiGet('/api/overview', { period, guild_id: gid });
     document.getElementById('k-members').textContent = d.active_members;
     document.getElementById('k-online').textContent = fmt(d.total_online_minutes);
     document.getElementById('k-voice').textContent = fmt(d.total_voice_minutes);
     const avg = d.active_members > 0 ? d.total_online_minutes / d.active_members : 0;
     document.getElementById('k-avg').textContent = fmt(avg);
-  } catch(e) { console.error(e); }
+  } catch(e) {
+    console.error(e);
+    document.getElementById('k-members').textContent = '—';
+    document.getElementById('k-online').textContent = '—';
+    document.getElementById('k-voice').textContent = '—';
+    document.getElementById('k-avg').textContent = '—';
+  }
 }
 
 async function loadMembers(gid) {
   const tbody = document.getElementById('tbody');
   tbody.innerHTML = `<tr><td colspan="6"><div class="empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Carregando...</div></td></tr>`;
   try {
-    const r = await fetch(`/api/members?period=${period}&guild_id=${gid}`);
-    const d = await r.json();
+    const d = await apiGet('/api/members', { period, guild_id: gid });
     membersData = d.data || [];
     renderTable(membersData);
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Erro ao carregar dados. Verifique o servidor e o Guild ID.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Erro ao carregar dados: ${String(e.message || e)}</div></td></tr>`;
   }
 }
 
 async function loadTimeline(gid) {
   try {
-    const r = await fetch(`/api/timeline?period=${period}&guild_id=${gid}`);
-    const d = await r.json();
+    const d = await apiGet('/api/timeline', { period, guild_id: gid });
     renderChart(d.data || []);
   } catch(e) { console.error(e); }
 }
@@ -599,6 +640,29 @@ function exportCSV() {
   a.download = `tracker-${period}-${new Date().toISOString().split('T')[0]}.csv`;
   a.click();
 }
+
+async function bootstrap() {
+  const gidSaved = localStorage.getItem('tracker.guild_id') || '';
+  const secretSaved = localStorage.getItem('tracker.api_secret') || '';
+  if (gidSaved) document.getElementById('guild-input').value = gidSaved;
+  if (secretSaved) document.getElementById('secret-input').value = secretSaved;
+
+  try {
+    const cfg = await fetch('/api/config').then(r => r.json());
+    if (!document.getElementById('guild-input').value && cfg.default_guild_id) {
+      document.getElementById('guild-input').value = cfg.default_guild_id;
+    }
+    if (cfg.secret_required && !document.getElementById('secret-input').value) {
+      document.getElementById('secret-input').placeholder = 'API Secret obrigatório';
+    }
+  } catch (_) {}
+
+  if (guildId()) {
+    loadAll();
+  }
+}
+
+bootstrap();
 </script>
 </body>
 </html>

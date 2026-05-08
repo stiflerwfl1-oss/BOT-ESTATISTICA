@@ -17,6 +17,7 @@ const CONFIG = {
   TRACK_INTERVAL_MS: 10_000,
   MAX_SESSIONS_PER_USER: 80
 };
+const LEGACY_DATA_FILE = path.join(__dirname, "bot", "stats.json");
 
 if (!CONFIG.TOKEN || !CONFIG.GUILD_ID) {
   console.warn("DISCORD_TOKEN/GUILD_ID ausentes. API e dashboard sobem em modo somente leitura de dados locais.");
@@ -39,12 +40,75 @@ function emptyDb() {
   };
 }
 
+function hasStatsData(candidate) {
+  if (!candidate || typeof candidate !== "object") return false;
+
+  const users = Object.values(candidate.users || {});
+  const hasUserTotals = users.some((user) =>
+    Number(user?.totalMessages || 0) > 0
+    || Number(user?.totalVoiceTime || 0) > 0
+    || Number(user?.totalActiveVoiceTime || 0) > 0
+    || Number(user?.totalGameTime || 0) > 0
+    || Number(user?.totalOnlineTime || 0) > 0
+  );
+  if (hasUserTotals) return true;
+
+  const hasPeriodStats = [candidate.dailyStats, candidate.weeklyStats, candidate.monthlyStats]
+    .some((periodStore) =>
+      Object.values(periodStore || {}).some((bucket) =>
+        Object.values(bucket || {}).some((stats) =>
+          Number(stats?.messages || 0) > 0
+          || Number(stats?.voice || 0) > 0
+          || Number(stats?.activeVoice || 0) > 0
+          || Number(stats?.game || 0) > 0
+          || Number(stats?.online || 0) > 0
+        )
+      )
+    );
+  if (hasPeriodStats) return true;
+
+  const hasGameTotals = Object.values(candidate.games || {}).some((gamesByUser) =>
+    Object.values(gamesByUser || {}).some((duration) => Number(duration || 0) > 0)
+  );
+  if (hasGameTotals) return true;
+
+  const hasMessages = Object.values(candidate.messages || {}).some((count) => Number(count || 0) > 0);
+  return hasMessages;
+}
+
+function readStatsFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error(`Falha ao ler arquivo de stats (${filePath}):`, error.message);
+    return null;
+  }
+}
+
 function loadData() {
   try {
-    if (!fs.existsSync(CONFIG.DATA_FILE)) return emptyDb();
-    const raw = fs.readFileSync(CONFIG.DATA_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    return { ...emptyDb(), ...parsed };
+    const currentParsed = readStatsFile(CONFIG.DATA_FILE);
+    const currentDb = { ...emptyDb(), ...(currentParsed || {}) };
+    if (hasStatsData(currentDb)) return currentDb;
+
+    const legacyParsed = readStatsFile(LEGACY_DATA_FILE);
+    const legacyDb = { ...emptyDb(), ...(legacyParsed || {}) };
+    if (!hasStatsData(legacyDb)) return currentDb;
+
+    const merged = {
+      ...legacyDb,
+      guild_id: currentDb.guild_id || legacyDb.guild_id || CONFIG.GUILD_ID || DEFAULT_GUILD_ID
+    };
+
+    try {
+      fs.writeFileSync(CONFIG.DATA_FILE, JSON.stringify(merged, null, 2), "utf8");
+      console.warn(`Migracao automatica aplicada de ${LEGACY_DATA_FILE} para ${CONFIG.DATA_FILE}.`);
+    } catch (writeError) {
+      console.error("Falha ao persistir migracao de stats:", writeError.message);
+    }
+    return merged;
   } catch (error) {
     console.error("Falha ao carregar stats.json:", error.message);
     return emptyDb();

@@ -1,0 +1,8 @@
+node_modules/
+bot/
+data/stats.json
+stats.json
+.env
+npm-debug.log
+*.log
+*.zip

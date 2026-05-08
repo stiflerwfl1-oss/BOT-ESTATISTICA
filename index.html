@@ -253,6 +253,31 @@ tbody tr:last-child td{border-bottom:none}
 }
 .empty svg{color:var(--faint)}
 
+.rankings-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  gap:1rem;
+}
+.mini-list{display:flex;flex-direction:column;gap:.5rem}
+.mini-item{
+  display:flex;align-items:center;justify-content:space-between;gap:.8rem;
+  padding:.55rem .7rem;border:1px solid var(--divider);border-radius:10px;
+  background:var(--surface-2);
+}
+.mini-left{display:flex;align-items:center;gap:.6rem;min-width:0}
+.mini-rank{
+  width:20px;text-align:center;font-size:.76rem;font-weight:700;color:var(--muted);
+  font-variant-numeric:tabular-nums;
+}
+.mini-name{
+  font-size:.82rem;font-weight:700;color:var(--text);
+  max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.mini-value{
+  font-family:'Sora',sans-serif;font-size:.85rem;color:var(--primary);font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+
 .table-wrap::-webkit-scrollbar{height:8px}
 .table-wrap::-webkit-scrollbar-thumb{
   background:color-mix(in srgb,var(--primary) 46%,var(--surface-off));
@@ -302,9 +327,9 @@ tbody tr:last-child td{border-bottom:none}
 
 <main class="main">
   <!-- Guild Input -->
-  <div class="guild-bar">
+  <div class="guild-bar" hidden>
     <label for="guild-input">Guild ID</label>
-    <input id="guild-input" class="guild-input" placeholder="Cole aqui o ID do seu servidor..." type="text">
+    <input id="guild-input" class="guild-input" value="1490860307269161042" placeholder="Cole aqui o ID do seu servidor..." type="text">
     <button class="btn btn-primary" onclick="loadAll()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -341,7 +366,7 @@ tbody tr:last-child td{border-bottom:none}
           <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
           <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
         </svg>
-        Tempo em Voz
+        Voz Ativa
       </div>
       <div class="kpi-value" id="k-voice">—</div>
       <div class="kpi-sub">horas em call</div>
@@ -387,22 +412,42 @@ tbody tr:last-child td{border-bottom:none}
             <th>#</th>
             <th>Membro</th>
             <th>Online</th>
-            <th>Voz</th>
+            <th>Voz Ativa</th>
+            <th>Jogo Ativo</th>
             <th>Progresso</th>
             <th>Último acesso</th>
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="6">
+          <tr><td colspan="7">
             <div class="empty">
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
               </svg>
-              Insira o Guild ID e clique em Carregar
+              Carregando dados do servidor
             </div>
           </td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="rankings-grid">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Top Ativos em Voz (sem mute/AFK)</span>
+      </div>
+      <div id="active-voice-ranking" class="mini-list">
+        <div class="empty">Carregue os dados para ver o ranking.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Top Jogo Ativo</span>
+      </div>
+      <div id="game-ranking" class="mini-list">
+        <div class="empty">Carregue os dados para ver o ranking.</div>
+      </div>
     </div>
   </div>
 </main>
@@ -411,6 +456,11 @@ tbody tr:last-child td{border-bottom:none}
 let period = 'month';
 let membersData = [];
 let chartInstance = null;
+const GUILD_STORAGE_KEY = 'dashboard.guild_id';
+const DEFAULT_GUILD_ID = '1490860307269161042';
+const REFRESH_INTERVAL_MS = 5000;
+let isLoading = false;
+let refreshTimer = null;
 
 // Theme
 let dark = true;
@@ -433,14 +483,28 @@ document.querySelectorAll('.p-tab').forEach(btn => {
 });
 
 function guildId() {
-  return document.getElementById('guild-input').value.trim();
+  return document.getElementById('guild-input').value.trim() || DEFAULT_GUILD_ID;
+}
+
+function setGuildInUrl(gid) {
+  const url = new URL(window.location.href);
+  if (gid) url.searchParams.set('guild_id', gid);
+  else url.searchParams.delete('guild_id');
+  window.history.replaceState({}, '', url);
+}
+
+function guildFromUrl() {
+  return new URLSearchParams(window.location.search).get('guild_id')?.trim() || '';
 }
 
 function fmt(min) {
-  min = Math.round(min);
-  if (min <= 0) return '0m';
-  const h = Math.floor(min / 60), m = min % 60;
-  return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+  const totalSeconds = Math.max(0, Math.floor(Number(min || 0) * 60));
+  if (totalSeconds <= 0) return '0s';
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
 function fmtDate(iso) {
@@ -454,33 +518,54 @@ function initials(name) {
 }
 
 async function loadAll() {
+  if (isLoading) return;
   const gid = guildId();
-  if (!gid) { alert('Insira o Guild ID do servidor.'); return; }
-  await Promise.all([loadOverview(gid), loadMembers(gid), loadTimeline(gid)]);
+  isLoading = true;
+  document.getElementById('guild-input').value = gid;
+  localStorage.setItem(GUILD_STORAGE_KEY, gid);
+  setGuildInUrl(gid);
+  try {
+    await Promise.all([loadOverview(gid), loadMembers(gid), loadTimeline(gid)]);
+  } finally {
+    isLoading = false;
+  }
 }
 
 async function loadOverview(gid) {
   try {
     const r = await fetch(`/api/overview?period=${period}&guild_id=${gid}`);
     const d = await r.json();
+    if (!r.ok || d.success === false) throw new Error(d.error || 'Falha ao carregar overview');
     document.getElementById('k-members').textContent = d.active_members;
     document.getElementById('k-online').textContent = fmt(d.total_online_minutes);
-    document.getElementById('k-voice').textContent = fmt(d.total_voice_minutes);
+    document.getElementById('k-voice').textContent = fmt(d.total_active_voice_minutes || d.total_voice_minutes || 0);
     const avg = d.active_members > 0 ? d.total_online_minutes / d.active_members : 0;
     document.getElementById('k-avg').textContent = fmt(avg);
-  } catch(e) { console.error(e); }
+  } catch(e) {
+    console.error(e);
+    document.getElementById('k-members').textContent = '0';
+    document.getElementById('k-online').textContent = '0m';
+    document.getElementById('k-voice').textContent = '0m';
+    document.getElementById('k-avg').textContent = '0m';
+  }
 }
 
 async function loadMembers(gid) {
   const tbody = document.getElementById('tbody');
-  tbody.innerHTML = `<tr><td colspan="6"><div class="empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Carregando...</div></td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7"><div class="empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Carregando...</div></td></tr>`;
   try {
     const r = await fetch(`/api/members?period=${period}&guild_id=${gid}`);
     const d = await r.json();
+    if (!r.ok || d.success === false) throw new Error(d.error || 'Falha ao carregar membros');
     membersData = d.data || [];
     renderTable(membersData);
+    renderRankings(membersData);
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Erro ao carregar dados. Verifique o servidor e o Guild ID.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty">Erro ao carregar dados. Verifique o servidor e o Guild ID.</div></td></tr>`;
+    const activeRoot = document.getElementById('active-voice-ranking');
+    const gameRoot = document.getElementById('game-ranking');
+    activeRoot.innerHTML = '<div class="empty">Sem dados de voz ativa neste período.</div>';
+    gameRoot.innerHTML = '<div class="empty">Sem dados de jogo ativo neste período.</div>';
   }
 }
 
@@ -488,6 +573,7 @@ async function loadTimeline(gid) {
   try {
     const r = await fetch(`/api/timeline?period=${period}&guild_id=${gid}`);
     const d = await r.json();
+    if (!r.ok || d.success === false) throw new Error(d.error || 'Falha ao carregar timeline');
     renderChart(d.data || []);
   } catch(e) { console.error(e); }
 }
@@ -495,16 +581,17 @@ async function loadTimeline(gid) {
 function renderTable(data) {
   const tbody = document.getElementById('tbody');
   if (!data.length) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty">Nenhum dado encontrado para este período.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty">Nenhum dado encontrado para este período.</div></td></tr>`;
     return;
   }
-  const maxOnline = Math.max(...data.map(m => m.online_minutes), 1);
-  tbody.innerHTML = data.map((m, i) => {
-    const pct = Math.min(100, (m.online_minutes / maxOnline) * 100).toFixed(1);
+  const maxOnline = Math.max(...data.map(m => m.active_voice_minutes || 0), 1);
+  const ordered = [...data].sort((a, b) => (b.active_voice_minutes || 0) - (a.active_voice_minutes || 0));
+  tbody.innerHTML = ordered.map((m, i) => {
+    const pct = Math.min(100, ((m.active_voice_minutes || 0) / maxOnline) * 100).toFixed(1);
     const av = m.avatar_url
       ? `<img src="${m.avatar_url}" alt="" onerror="this.style.display='none'">`
       : initials(m.display_name || m.username);
-    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
+    const medal = i + 1;
     return `
       <tr>
         <td><span class="rank">${medal}</span></td>
@@ -518,7 +605,8 @@ function renderTable(data) {
           </div>
         </td>
         <td><span class="time-cell time-online">${fmt(m.online_minutes)}</span></td>
-        <td><span class="time-cell">${fmt(m.voice_minutes)}</span></td>
+        <td><span class="time-cell">${fmt(m.active_voice_minutes || 0)}</span></td>
+        <td><span class="time-cell">${fmt(m.game_minutes || 0)}</span></td>
         <td>
           <div class="bar-wrap">
             <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
@@ -528,6 +616,49 @@ function renderTable(data) {
         <td style="color:var(--muted);font-size:.75rem">${fmtDate(m.last_seen)}</td>
       </tr>`;
   }).join('');
+}
+
+function renderRankings(data) {
+  const activeRoot = document.getElementById('active-voice-ranking');
+  const gameRoot = document.getElementById('game-ranking');
+
+  const topActive = [...data]
+    .filter((m) => Number(m.active_voice_minutes || 0) > 0)
+    .sort((a, b) => Number(b.active_voice_minutes || 0) - Number(a.active_voice_minutes || 0))
+    .slice(0, 10);
+
+  const topGame = [...data]
+    .filter((m) => Number(m.game_minutes || 0) > 0)
+    .sort((a, b) => Number(b.game_minutes || 0) - Number(a.game_minutes || 0))
+    .slice(0, 10);
+
+  if (!topActive.length) {
+    activeRoot.innerHTML = '<div class="empty">Sem dados de voz ativa neste período.</div>';
+  } else {
+    activeRoot.innerHTML = topActive.map((m, i) => `
+      <div class="mini-item">
+        <div class="mini-left">
+          <span class="mini-rank">${i + 1}</span>
+          <span class="mini-name">${m.display_name || m.username || 'Desconhecido'}</span>
+        </div>
+        <span class="mini-value">${fmt(m.active_voice_minutes || 0)}</span>
+      </div>
+    `).join('');
+  }
+
+  if (!topGame.length) {
+    gameRoot.innerHTML = '<div class="empty">Sem dados de jogo ativo neste período.</div>';
+  } else {
+    gameRoot.innerHTML = topGame.map((m, i) => `
+      <div class="mini-item">
+        <div class="mini-left">
+          <span class="mini-rank">${i + 1}</span>
+          <span class="mini-name">${m.display_name || m.username || 'Desconhecido'}</span>
+        </div>
+        <span class="mini-value">${fmt(m.game_minutes || 0)}</span>
+      </div>
+    `).join('');
+  }
 }
 
 function renderChart(data) {
@@ -588,9 +719,9 @@ function renderChart(data) {
 
 function exportCSV() {
   if (!membersData.length) { alert('Nenhum dado para exportar.'); return; }
-  const header = ['user_id','username','display_name','online_minutes','voice_minutes','last_seen'];
+  const header = ['user_id','username','display_name','online_minutes','voice_minutes','active_voice_minutes','game_minutes','last_seen'];
   const rows = membersData.map(m => [
-    m.user_id, m.username, m.display_name, m.online_minutes, m.voice_minutes, m.last_seen || ''
+    m.user_id, m.username, m.display_name, m.online_minutes, m.voice_minutes, m.active_voice_minutes || 0, m.game_minutes || 0, m.last_seen || ''
   ]);
   const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
@@ -599,6 +730,34 @@ function exportCSV() {
   a.download = `tracker-${period}-${new Date().toISOString().split('T')[0]}.csv`;
   a.click();
 }
+
+async function bootstrapGuildAndLoad() {
+  const input = document.getElementById('guild-input');
+  let gid = DEFAULT_GUILD_ID;
+
+  if (!gid) {
+    try {
+      const r = await fetch('/health');
+      const d = await r.json();
+      if (r.ok && d?.guild?.configuredId) gid = String(d.guild.configuredId).trim();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  if (gid) {
+    input.value = gid;
+    localStorage.setItem(GUILD_STORAGE_KEY, gid);
+    setGuildInUrl(gid);
+    await loadAll();
+  }
+
+  if (!refreshTimer) {
+    refreshTimer = setInterval(loadAll, REFRESH_INTERVAL_MS);
+  }
+}
+
+bootstrapGuildAndLoad();
 </script>
 </body>
 </html>

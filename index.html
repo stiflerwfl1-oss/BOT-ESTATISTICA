@@ -458,9 +458,7 @@ let membersData = [];
 let chartInstance = null;
 const GUILD_STORAGE_KEY = 'dashboard.guild_id';
 const DEFAULT_GUILD_ID = '1490860307269161042';
-const REFRESH_INTERVAL_MS = 5000;
 let isLoading = false;
-let refreshTimer = null;
 
 // Theme
 let dark = true;
@@ -752,9 +750,6 @@ async function bootstrapGuildAndLoad() {
     await loadAll();
   }
 
-  if (!refreshTimer) {
-    refreshTimer = setInterval(loadAll, REFRESH_INTERVAL_MS);
-  }
 }
 
 bootstrapGuildAndLoad();

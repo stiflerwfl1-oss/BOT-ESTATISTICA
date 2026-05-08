@@ -14,6 +14,7 @@ const CONFIG = {
   PORT: Number(process.env.PORT || 3000),
   DATA_FILE: path.join(__dirname, "stats.json"),
   SAVE_INTERVAL_MS: 30_000,
+  TRACK_INTERVAL_MS: 10_000,
   MAX_SESSIONS_PER_USER: 80
 };
 
@@ -131,10 +132,11 @@ function ensurePeriodRow(store, key, userId) {
   }
 }
 
-function incrementPeriodStat(userId, type, amount) {
-  const day = toDateKey();
-  const week = weekStartKey();
-  const month = monthKey();
+function incrementPeriodStat(userId, type, amount, ts = nowTs()) {
+  const date = new Date(ts);
+  const day = toDateKey(date);
+  const week = weekStartKey(date);
+  const month = monthKey(date);
 
   ensurePeriodRow(db.dailyStats, day, userId);
   ensurePeriodRow(db.weeklyStats, week, userId);
@@ -143,6 +145,24 @@ function incrementPeriodStat(userId, type, amount) {
   db.dailyStats[day][userId][type] += amount;
   db.weeklyStats[week][userId][type] += amount;
   db.monthlyStats[month][userId][type] += amount;
+}
+
+function startOfNextDayTs(ts) {
+  const date = new Date(ts);
+  date.setHours(24, 0, 0, 0);
+  return date.getTime();
+}
+
+function incrementPeriodStatForRange(userId, type, startedAt, endedAt) {
+  let cursor = Math.max(0, Number(startedAt || endedAt));
+  const end = Math.max(cursor, Number(endedAt || cursor));
+
+  while (cursor < end) {
+    const nextBoundary = startOfNextDayTs(cursor);
+    const segmentEnd = Math.min(end, nextBoundary);
+    incrementPeriodStat(userId, type, segmentEnd - cursor, cursor);
+    cursor = segmentEnd;
+  }
 }
 
 function appendSession(userId, session) {
@@ -220,6 +240,7 @@ function syncQualifiedOnlineSession(userId, ts, presence, voiceState) {
   if (!current) {
     onlineSessions.set(userId, {
       startedAt: ts,
+      lastCommittedAt: ts,
       status,
       roomId,
       roomName
@@ -238,19 +259,83 @@ function updateUserMessageTotals(userId) {
   db.users[userId].totalMessages = Math.max(direct, counter);
 }
 
+function sessionStartTs(session) {
+  return Number(session?.startedAt || session?.joinedAt || nowTs());
+}
+
+function pendingSessionDuration(session, ts) {
+  const from = Number(session?.lastCommittedAt || sessionStartTs(session));
+  return Math.max(0, ts - from);
+}
+
+function commitVoiceDelta(userId, session, ts) {
+  if (!session || !db.users[userId]) return 0;
+  const from = Number(session.lastCommittedAt || session.joinedAt || ts);
+  const duration = Math.max(0, ts - from);
+  if (duration <= 0) return 0;
+  db.users[userId].totalVoiceTime += duration;
+  incrementPeriodStatForRange(userId, "voice", from, ts);
+  session.lastCommittedAt = ts;
+  return duration;
+}
+
+function commitActiveVoiceDelta(userId, session, ts) {
+  if (!session || !db.users[userId]) return 0;
+  const from = Number(session.lastCommittedAt || session.joinedAt || ts);
+  const duration = Math.max(0, ts - from);
+  if (duration <= 0) return 0;
+  db.users[userId].totalActiveVoiceTime += duration;
+  incrementPeriodStatForRange(userId, "activeVoice", from, ts);
+  session.lastCommittedAt = ts;
+  return duration;
+}
+
+function commitGameDelta(userId, session, ts) {
+  if (!session || !db.users[userId]) return 0;
+  const from = Number(session.lastCommittedAt || session.startedAt || ts);
+  const duration = Math.max(0, ts - from);
+  const gameName = session.game || "Jogo desconhecido";
+  if (duration <= 0) return 0;
+  db.users[userId].totalGameTime += duration;
+  incrementPeriodStatForRange(userId, "game", from, ts);
+  if (!db.games[userId]) db.games[userId] = {};
+  db.games[userId][gameName] = (db.games[userId][gameName] || 0) + duration;
+  session.lastCommittedAt = ts;
+  return duration;
+}
+
+function commitOnlineDelta(userId, session, ts) {
+  if (!session || !db.users[userId]) return 0;
+  const from = Number(session.lastCommittedAt || session.startedAt || ts);
+  const duration = Math.max(0, ts - from);
+  if (duration <= 0) return 0;
+  db.users[userId].totalOnlineTime += duration;
+  incrementPeriodStatForRange(userId, "online", from, ts);
+  session.lastCommittedAt = ts;
+  return duration;
+}
+
+function commitOpenSessionDeltas(ts = nowTs()) {
+  for (const [userId, session] of voiceSessions.entries()) commitVoiceDelta(userId, session, ts);
+  for (const [userId, session] of activeVoiceSessions.entries()) commitActiveVoiceDelta(userId, session, ts);
+  for (const [userId, session] of gameSessions.entries()) commitGameDelta(userId, session, ts);
+  for (const [userId, session] of onlineSessions.entries()) commitOnlineDelta(userId, session, ts);
+}
+
 function closeVoiceSession(userId, endedAt, channelInfo) {
   const session = voiceSessions.get(userId);
-  if (!session || !db.users[userId]) return;
+  if (!session) return;
   const duration = Math.max(0, endedAt - session.joinedAt);
   if (duration <= 0) {
     voiceSessions.delete(userId);
     return;
   }
 
-  db.users[userId].totalVoiceTime += duration;
-  db.users[userId].totalVoiceSessions += 1;
-  db.users[userId].longestVoiceSession = Math.max(db.users[userId].longestVoiceSession, duration);
-  incrementPeriodStat(userId, "voice", duration);
+  commitVoiceDelta(userId, session, endedAt);
+  if (db.users[userId]) {
+    db.users[userId].totalVoiceSessions += 1;
+    db.users[userId].longestVoiceSession = Math.max(db.users[userId].longestVoiceSession, duration);
+  }
 
   appendSession(userId, {
     type: "voice",
@@ -266,15 +351,14 @@ function closeVoiceSession(userId, endedAt, channelInfo) {
 
 function closeActiveVoiceSession(userId, endedAt, channelInfo) {
   const session = activeVoiceSessions.get(userId);
-  if (!session || !db.users[userId]) return;
+  if (!session) return;
   const duration = Math.max(0, endedAt - session.joinedAt);
   if (duration <= 0) {
     activeVoiceSessions.delete(userId);
     return;
   }
 
-  db.users[userId].totalActiveVoiceTime += duration;
-  incrementPeriodStat(userId, "activeVoice", duration);
+  commitActiveVoiceDelta(userId, session, endedAt);
 
   appendSession(userId, {
     type: "active_voice",
@@ -290,7 +374,7 @@ function closeActiveVoiceSession(userId, endedAt, channelInfo) {
 
 function closeGameSession(userId, endedAt, fallbackGame) {
   const session = gameSessions.get(userId);
-  if (!session || !db.users[userId]) return;
+  if (!session) return;
   const duration = Math.max(0, endedAt - session.startedAt);
   const gameName = session.game || fallbackGame || "Jogo desconhecido";
   if (duration <= 0) {
@@ -298,13 +382,11 @@ function closeGameSession(userId, endedAt, fallbackGame) {
     return;
   }
 
-  db.users[userId].totalGameTime += duration;
-  db.users[userId].totalGameSessions += 1;
-  db.users[userId].longestGameSession = Math.max(db.users[userId].longestGameSession, duration);
-  incrementPeriodStat(userId, "game", duration);
-
-  if (!db.games[userId]) db.games[userId] = {};
-  db.games[userId][gameName] = (db.games[userId][gameName] || 0) + duration;
+  commitGameDelta(userId, session, endedAt);
+  if (db.users[userId]) {
+    db.users[userId].totalGameSessions += 1;
+    db.users[userId].longestGameSession = Math.max(db.users[userId].longestGameSession, duration);
+  }
 
   appendSession(userId, {
     type: "game",
@@ -319,15 +401,14 @@ function closeGameSession(userId, endedAt, fallbackGame) {
 
 function closeOnlineSession(userId, endedAt, fallbackStatus) {
   const session = onlineSessions.get(userId);
-  if (!session || !db.users[userId]) return;
+  if (!session) return;
   const duration = Math.max(0, endedAt - session.startedAt);
   if (duration <= 0) {
     onlineSessions.delete(userId);
     return;
   }
 
-  db.users[userId].totalOnlineTime += duration;
-  incrementPeriodStat(userId, "online", duration);
+  commitOnlineDelta(userId, session, endedAt);
 
   appendSession(userId, {
     type: "online",
@@ -370,10 +451,10 @@ function userLiveSnapshot(userId, user, ts) {
   const gameSession = gameSessions.get(userId);
   const onlineSession = onlineSessions.get(userId);
 
-  const voiceTotal = user.totalVoiceTime + (voiceSession ? ts - voiceSession.joinedAt : 0);
-  const activeVoiceTotal = user.totalActiveVoiceTime + (activeVoiceSession ? ts - activeVoiceSession.joinedAt : 0);
-  const gameTotal = user.totalGameTime + (gameSession ? ts - gameSession.startedAt : 0);
-  const onlineTotal = user.totalOnlineTime + (onlineSession ? ts - onlineSession.startedAt : 0);
+  const voiceTotal = user.totalVoiceTime + pendingSessionDuration(voiceSession, ts);
+  const activeVoiceTotal = user.totalActiveVoiceTime + pendingSessionDuration(activeVoiceSession, ts);
+  const gameTotal = user.totalGameTime + pendingSessionDuration(gameSession, ts);
+  const onlineTotal = user.totalOnlineTime + pendingSessionDuration(onlineSession, ts);
   const totalMessages = Math.max(Number(db.messages[userId] || 0), Number(user.totalMessages || 0));
 
   const userGames = db.games[userId] || {};
@@ -436,6 +517,141 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.GuildMember]
 });
 
+function syncVoiceSession(userId, ts, voiceState) {
+  const current = voiceSessions.get(userId);
+  const qualifies = Boolean(voiceState?.channelId) && !isAfkChannel(voiceState);
+  const channelId = voiceState?.channel?.id || voiceState?.channelId || null;
+
+  if (current && (!qualifies || current.channelId !== channelId)) {
+    closeVoiceSession(userId, ts, {
+      id: current.channelId,
+      name: current.channelName || "Canal de voz"
+    });
+  }
+
+  if (!qualifies) return;
+
+  const active = voiceSessions.get(userId);
+  if (!active) {
+    voiceSessions.set(userId, {
+      channelId,
+      channelName: voiceState.channel?.name || "Canal de voz",
+      joinedAt: ts,
+      lastCommittedAt: ts
+    });
+    return;
+  }
+
+  active.channelId = channelId;
+  active.channelName = voiceState.channel?.name || active.channelName || "Canal de voz";
+}
+
+function syncActiveVoiceSession(userId, ts, voiceState) {
+  const current = activeVoiceSessions.get(userId);
+  const qualifies = isTrackableActiveVoice(voiceState);
+  const channelId = voiceState?.channel?.id || voiceState?.channelId || null;
+
+  if (current && (!qualifies || current.channelId !== channelId)) {
+    closeActiveVoiceSession(userId, ts, {
+      id: current.channelId,
+      name: current.channelName || "Canal de voz"
+    });
+  }
+
+  if (!qualifies) return;
+
+  const active = activeVoiceSessions.get(userId);
+  if (!active) {
+    activeVoiceSessions.set(userId, {
+      channelId,
+      channelName: voiceState.channel?.name || "Canal de voz",
+      joinedAt: ts,
+      lastCommittedAt: ts
+    });
+    return;
+  }
+
+  active.channelId = channelId;
+  active.channelName = voiceState.channel?.name || active.channelName || "Canal de voz";
+}
+
+function syncGameSession(userId, ts, presence) {
+  const gameName = findPlayingActivity(presence)?.name || null;
+  const current = gameSessions.get(userId);
+
+  if (current && current.game !== gameName) {
+    closeGameSession(userId, ts, current.game);
+  }
+
+  const active = gameSessions.get(userId);
+  if (gameName && (!active || active.game !== gameName)) {
+    gameSessions.set(userId, {
+      game: gameName,
+      startedAt: ts,
+      lastCommittedAt: ts
+    });
+  }
+}
+
+function syncMemberRuntimeState(guild, member, ts, fallbackPresence = null) {
+  if (!member?.user) return;
+  const userId = member.id;
+  ensureUser(
+    userId,
+    member.user.tag,
+    member.user.displayAvatarURL({ size: 128 })
+  );
+
+  const presence = getCachedPresence(guild, userId, fallbackPresence || member.presence);
+  syncVoiceSession(userId, ts, member.voice);
+  syncActiveVoiceSession(userId, ts, member.voice);
+  syncGameSession(userId, ts, presence);
+  syncQualifiedOnlineSession(userId, ts, presence, member.voice);
+}
+
+async function reconcileGuildLiveState({ fetchMembers = false } = {}) {
+  if (!botConnected) return;
+  let guild = client.guilds.cache.get(CONFIG.GUILD_ID);
+  if (!guild) {
+    try {
+      guild = await client.guilds.fetch(CONFIG.GUILD_ID);
+    } catch {
+      guild = null;
+    }
+  }
+  if (!guild) return;
+
+  if (fetchMembers) {
+    await guild.members.fetch();
+  }
+
+  const ts = nowTs();
+  guild.members.cache.forEach((member) => {
+    syncMemberRuntimeState(guild, member, ts);
+  });
+
+  guild.presences.cache.forEach((presence) => {
+    const userId = presence.userId;
+    const member = guild.members.cache.get(userId);
+    if (member) {
+      syncMemberRuntimeState(guild, member, ts, presence);
+      return;
+    }
+
+    const user = presence.user;
+    if (!user) return;
+    ensureUser(
+      userId,
+      user.tag,
+      user.displayAvatarURL({ size: 128 })
+    );
+    syncGameSession(userId, ts, presence);
+    syncQualifiedOnlineSession(userId, ts, presence, null);
+  });
+
+  commitOpenSessionDeltas(ts);
+}
+
 client.once("clientReady", async () => {
   botConnected = true;
   botLastError = null;
@@ -461,63 +677,7 @@ client.once("clientReady", async () => {
       return;
     }
 
-    await guild.members.fetch();
-    const ts = nowTs();
-
-    guild.members.cache.forEach((member) => {
-      const user = ensureUser(
-        member.id,
-        member.user.tag,
-        member.user.displayAvatarURL({ size: 128 })
-      );
-
-      const inAfkAtBoot = isAfkChannel(member.voice);
-      if (member.voice?.channel && !inAfkAtBoot) {
-        voiceSessions.set(member.id, {
-          channelId: member.voice.channel.id,
-          channelName: member.voice.channel.name,
-          joinedAt: ts
-        });
-      }
-
-      if (isTrackableActiveVoice(member.voice)) {
-        activeVoiceSessions.set(member.id, {
-          channelId: member.voice.channel.id,
-          channelName: member.voice.channel.name,
-          joinedAt: ts
-        });
-      }
-
-      const game = findPlayingActivity(member.presence);
-      if (game?.name) {
-        gameSessions.set(member.id, { game: game.name, startedAt: ts });
-      }
-
-      syncQualifiedOnlineSession(member.id, ts, member.presence, member.voice);
-
-      db.users[member.id] = user;
-    });
-
-    guild.presences.cache.forEach((presence) => {
-      const userId = presence.userId;
-      const member = guild.members.cache.get(userId);
-      const user = presence.user || member?.user;
-      if (!user) return;
-
-      ensureUser(
-        userId,
-        user.tag,
-        user.displayAvatarURL({ size: 128 })
-      );
-
-      syncQualifiedOnlineSession(userId, ts, presence, member?.voice);
-
-      const game = findPlayingActivity(presence);
-      if (game?.name && !gameSessions.has(userId)) {
-        gameSessions.set(userId, { game: game.name, startedAt: ts });
-      }
-    });
-
+    await reconcileGuildLiveState({ fetchMembers: true });
     persistData();
   } catch (error) {
     console.error("Falha ao sincronizar membros no boot:", error.message);
@@ -582,14 +742,15 @@ client.on("voiceStateUpdate", (oldState, newState) => {
     voiceSessions.set(userId, {
       channelId: newState.channel?.id || newState.channelId || null,
       channelName: newState.channel?.name || "Canal de voz",
-      joinedAt: ts
+      joinedAt: ts,
+      lastCommittedAt: ts
     });
 
     const activeGame = findPlayingActivity(presence);
     const currentGameSession = gameSessions.get(userId);
     if (activeGame?.name && (!currentGameSession || currentGameSession.game !== activeGame.name)) {
       if (currentGameSession) closeGameSession(userId, ts, currentGameSession.game);
-      gameSessions.set(userId, { game: activeGame.name, startedAt: ts });
+      gameSessions.set(userId, { game: activeGame.name, startedAt: ts, lastCommittedAt: ts });
     }
   }
 
@@ -604,7 +765,8 @@ client.on("voiceStateUpdate", (oldState, newState) => {
     activeVoiceSessions.set(userId, {
       channelId: newState.channel?.id || newState.channelId || null,
       channelName: newState.channel?.name || "Canal de voz",
-      joinedAt: ts
+      joinedAt: ts,
+      lastCommittedAt: ts
     });
   }
 
@@ -638,14 +800,33 @@ client.on("presenceUpdate", (oldPresence, newPresence) => {
     closeGameSession(userId, ts, currentSession.game);
   }
   if (newGame && (!currentSession || currentSession.game !== newGame)) {
-    gameSessions.set(userId, { game: newGame, startedAt: ts });
+    gameSessions.set(userId, { game: newGame, startedAt: ts, lastCommittedAt: ts });
   }
   if (!newGame && currentSession) {
     closeGameSession(userId, ts, currentSession.game);
   }
 });
 
-setInterval(persistData, CONFIG.SAVE_INTERVAL_MS);
+let trackingTickRunning = false;
+
+async function runTrackingTick() {
+  if (trackingTickRunning) return;
+  trackingTickRunning = true;
+  try {
+    await reconcileGuildLiveState();
+    persistData();
+  } catch (error) {
+    console.error("Falha ao atualizar estatisticas em tempo real:", error.message);
+  } finally {
+    trackingTickRunning = false;
+  }
+}
+
+setInterval(runTrackingTick, CONFIG.TRACK_INTERVAL_MS);
+setInterval(() => {
+  commitOpenSessionDeltas();
+  persistData();
+}, CONFIG.SAVE_INTERVAL_MS);
 
 process.on("SIGINT", () => {
   flushAllSessions();
@@ -738,7 +919,7 @@ function getConfiguredGuildId() {
 }
 
 function getRequestedGuildId(req) {
-  return String(req.query.guild_id || "").trim();
+  return String(req.query.guild_id || getConfiguredGuildId() || "").trim();
 }
 
 function validateGuildScope(req, res) {
@@ -782,7 +963,7 @@ function startOfTodayTs() {
 }
 
 function liveDurationToday(session, ts = nowTs()) {
-  const startedAt = Number(session?.startedAt || session?.joinedAt || ts);
+  const startedAt = Number(session?.lastCommittedAt || session?.startedAt || session?.joinedAt || ts);
   return Math.max(0, ts - Math.max(startedAt, startOfTodayTs()));
 }
 
@@ -1259,7 +1440,7 @@ app.get("/health", (_req, res) => {
     timestamp: nowTs(),
     guild: {
       configuredId: configuredGuildId || null,
-      requiresGuildId: true
+      requiresGuildId: false
     },
     bot: {
       configured: Boolean(CONFIG.TOKEN && CONFIG.GUILD_ID),

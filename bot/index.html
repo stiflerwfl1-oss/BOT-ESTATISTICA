@@ -141,7 +141,7 @@
   <div class="rankings-grid">
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Top Voz Ativa</span>
+        <span class="card-title">Top Online</span>
       </div>
       <div id="active-voice-ranking" class="mini-list">
         <div class="empty">Carregue os dados para ver o ranking.</div>
@@ -287,10 +287,10 @@ function renderTable(data) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty">Nenhum dado encontrado para este período.</div></td></tr>`;
     return;
   }
-  const maxOnline = Math.max(...data.map(m => m.active_voice_minutes || 0), 1);
-  const ordered = [...data].sort((a, b) => (b.active_voice_minutes || 0) - (a.active_voice_minutes || 0));
+  const maxOnline = Math.max(...data.map(m => m.online_minutes || 0), 1);
+  const ordered = [...data].sort((a, b) => (b.online_minutes || 0) - (a.online_minutes || 0));
   tbody.innerHTML = ordered.map((m, i) => {
-    const pct = Math.min(100, ((m.active_voice_minutes || 0) / maxOnline) * 100).toFixed(1);
+    const pct = Math.min(100, ((m.online_minutes || 0) / maxOnline) * 100).toFixed(1);
     const av = m.avatar_url
       ? `<img src="${m.avatar_url}" alt="" onerror="this.style.display='none'">`
       : initials(m.display_name || m.username);
@@ -325,8 +325,8 @@ function renderRankings(data) {
   const gameRoot = document.getElementById('game-ranking');
 
   const topActive = [...data]
-    .filter((m) => Number(m.active_voice_minutes || 0) > 0)
-    .sort((a, b) => Number(b.active_voice_minutes || 0) - Number(a.active_voice_minutes || 0))
+    .filter((m) => Number(m.online_minutes || 0) > 0)
+    .sort((a, b) => Number(b.online_minutes || 0) - Number(a.online_minutes || 0))
     .slice(0, 10);
 
   const topGame = [...data]
@@ -335,7 +335,7 @@ function renderRankings(data) {
     .slice(0, 10);
 
   if (!topActive.length) {
-    activeRoot.innerHTML = '<div class="empty">Sem dados de voz ativa neste período.</div>';
+    activeRoot.innerHTML = '<div class="empty">Sem dados online neste período.</div>';
   } else {
     activeRoot.innerHTML = topActive.map((m, i) => `
       <div class="mini-item">
@@ -343,7 +343,7 @@ function renderRankings(data) {
           <span class="mini-rank">${i + 1}</span>
           <span class="mini-name">${m.display_name || m.username || 'Desconhecido'}</span>
         </div>
-        <span class="mini-value">${fmt(m.active_voice_minutes || 0)}</span>
+        <span class="mini-value">${fmt(m.online_minutes || 0)}</span>
       </div>
     `).join('');
   }

@@ -118,7 +118,6 @@
             <th>#</th>
             <th>Membro</th>
             <th>Online</th>
-            <th>Jogo Ativo</th>
             <th>Progresso</th>
             <th>Último acesso</th>
           </tr>
@@ -144,14 +143,6 @@
         <span class="card-title">Top Online</span>
       </div>
       <div id="active-voice-ranking" class="mini-list">
-        <div class="empty">Carregue os dados para ver o ranking.</div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">Top Jogo Ativo</span>
-      </div>
-      <div id="game-ranking" class="mini-list">
         <div class="empty">Carregue os dados para ver o ranking.</div>
       </div>
     </div>
@@ -308,7 +299,6 @@ function renderTable(data) {
           </div>
         </td>
         <td><span class="time-cell time-online">${fmt(m.online_minutes)}</span></td>
-        <td><span class="time-cell">${fmt(m.game_minutes || 0)}</span></td>
         <td>
           <div class="bar-wrap">
             <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
@@ -322,16 +312,10 @@ function renderTable(data) {
 
 function renderRankings(data) {
   const activeRoot = document.getElementById('active-voice-ranking');
-  const gameRoot = document.getElementById('game-ranking');
 
   const topActive = [...data]
     .filter((m) => Number(m.online_minutes || 0) > 0)
     .sort((a, b) => Number(b.online_minutes || 0) - Number(a.online_minutes || 0))
-    .slice(0, 10);
-
-  const topGame = [...data]
-    .filter((m) => Number(m.game_minutes || 0) > 0)
-    .sort((a, b) => Number(b.game_minutes || 0) - Number(a.game_minutes || 0))
     .slice(0, 10);
 
   if (!topActive.length) {
@@ -344,20 +328,6 @@ function renderRankings(data) {
           <span class="mini-name">${m.display_name || m.username || 'Desconhecido'}</span>
         </div>
         <span class="mini-value">${fmt(m.online_minutes || 0)}</span>
-      </div>
-    `).join('');
-  }
-
-  if (!topGame.length) {
-    gameRoot.innerHTML = '<div class="empty">Sem dados de jogo ativo neste período.</div>';
-  } else {
-    gameRoot.innerHTML = topGame.map((m, i) => `
-      <div class="mini-item">
-        <div class="mini-left">
-          <span class="mini-rank">${i + 1}</span>
-          <span class="mini-name">${m.display_name || m.username || 'Desconhecido'}</span>
-        </div>
-        <span class="mini-value">${fmt(m.game_minutes || 0)}</span>
       </div>
     `).join('');
   }
